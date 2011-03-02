@@ -70,31 +70,6 @@ frm(Body) ->
      "<pre>", Body, "</pre>"
      "</body></html>"].
 
-default_body(Req, M, "/chunked") when M =:= 'GET'; M =:= 'HEAD' ->
-    Res = Req:ok({"text/plain", [], chunked}),
-    Res:write_chunk("First chunk\r\n"),
-    timer:sleep(5000),
-    Res:write_chunk("Last chunk\r\n"),
-    Res:write_chunk("");
-default_body(Req, M, _Path) when M =:= 'GET'; M =:= 'HEAD' ->
-    Body = io_lib:format("~p~n", [[{parse_qs, Req:parse_qs()},
-                                   {parse_cookie, Req:parse_cookie()},
-                                   Req:dump()]]),
-    Req:ok({"text/html",
-            [mochiweb_cookies:cookie("mochiweb_http", "test_cookie")],
-            frm(Body)});
-default_body(Req, 'POST', "/multipart") ->
-    Body = io_lib:format("~p~n", [[{parse_qs, Req:parse_qs()},
-                                   {parse_cookie, Req:parse_cookie()},
-                                   {body, Req:recv_body()},
-                                   Req:dump()]]),
-    Req:ok({"text/html", [], frm(Body)});
-default_body(Req, 'POST', _Path) ->
-    Body = io_lib:format("~p~n", [[{parse_qs, Req:parse_qs()},
-                                   {parse_cookie, Req:parse_cookie()},
-                                   {parse_post, Req:parse_post()},
-                                   Req:dump()]]),
-    Req:ok({"text/html", [], frm(Body)});
 default_body(Req, _Method, _Path) ->
     Req:respond({501, [], []}).
 
