@@ -255,22 +255,19 @@ stream_body(MaxChunkSize, ChunkFun, FunState, MaxBodyLength) ->
 %%      and Date if not present in ResponseHeaders.
 start_response({Code, ResponseHeaders}) ->
     HResponse = mochiweb_headers:make(ResponseHeaders),
-    HResponse1 = mochiweb_headers:default_from_list(server_headers(),
-                                                    HResponse),
-    start_raw_response({Code, HResponse1}).
+    start_raw_response({Code, HResponse}).
 
 %% @spec start_raw_response({integer(), headers()}) -> response()
 %% @doc Start the HTTP response by sending the Code HTTP response and
 %%      ResponseHeaders.
 start_raw_response({Code, ResponseHeaders}) ->
-    F = fun ({K, V}, Acc) ->
-                [mochiweb_util:make_io(K), <<": ">>, V, <<"\r\n">> | Acc]
-        end,
-    End = lists:foldl(F, [<<"\r\n">>],
-                      mochiweb_headers:to_list(ResponseHeaders)),
-    send([make_version(Version), make_code(Code), <<"\r\n">> | End]),
-  % TODO: RTSP response here?
-    mochiweb:new_response({THIS, Code, ResponseHeaders}).
+  F = fun ({K, V}, Acc) ->
+          [mochiweb_util:make_io(K), <<": ">>, V, <<"\r\n">> | Acc]
+      end,
+  End = lists:foldl(F, [<<"\r\n">>],
+                    mochiweb_headers:to_list(ResponseHeaders)),
+  send([make_version(Version), make_code(Code), <<"\r\n">> | End]),
+  mochiweb:new_response({THIS, Code, ResponseHeaders}).
 
 
 %% @spec start_response_length({integer(), ioheaders(), integer()}) -> response()
@@ -622,10 +619,6 @@ maybe_serve_file(File, ExtraHeaders) ->
         {error, _} ->
             not_found(ExtraHeaders)
     end.
-
-server_headers() ->
-    [{"Server", "MochiWeb/1.0 (" ++ ?QUIP ++ ")"},
-     {"Date", httpd_util:rfc1123_date()}].
 
 make_code(X) when is_integer(X) ->
     [integer_to_list(X), [" " | httpd_util:reason_phrase(X)]];

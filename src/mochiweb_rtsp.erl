@@ -116,14 +116,16 @@ reentry(Body) ->
     end.
 
 parse_msg(Msg) ->
-  try
-    [FirstLine, _Payload] = string:tokens(Msg, "\n"),
+%  try
+    [FirstLine | _Payload] = string:tokens(Msg, "\n"),
     [Method, Path, "RTSP/1.0"] = string:tokens(FirstLine, " "),
     {rtsp, list_to_atom(Method), Path}
-  catch
-    _:_ -> invalid_request
-  end.
-
+%  catch
+%    _:Err ->
+%      ?debugFmt("parse_msg error: ~p", [Err]),
+%      invalid_request
+%  end.
+.
 call_body({M, F, A}, Req) ->
     erlang:apply(M, F, [Req | A]);
 call_body({M, F}, Req) ->
