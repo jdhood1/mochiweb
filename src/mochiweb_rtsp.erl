@@ -54,22 +54,6 @@ start() ->
 start(Options) ->
   mochiweb_socket_server:start(parse_options(Options)).
 
-frm(Body) ->
-    ["<html><head></head><body>"
-     "<form method=\"POST\">"
-     "<input type=\"hidden\" value=\"message\" name=\"hidden\"/>"
-     "<input type=\"submit\" value=\"regular POST\">"
-     "</form>"
-     "<br />"
-     "<form method=\"POST\" enctype=\"multipart/form-data\""
-     " action=\"/multipart\">"
-     "<input type=\"hidden\" value=\"multipart message\" name=\"hidden\"/>"
-     "<input type=\"file\" name=\"file\"/>"
-     "<input type=\"submit\" value=\"multipart POST\" />"
-     "</form>"
-     "<pre>", Body, "</pre>"
-     "</body></html>"].
-
 default_body(Req, _Method, _Path) ->
     Req:respond({501, [], []}).
 
