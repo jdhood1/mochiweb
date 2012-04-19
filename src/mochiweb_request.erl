@@ -21,7 +21,7 @@
 -export([parse_cookie/0, get_cookie_value/1]).
 -export([serve_file/2, serve_file/3]).
 -export([accepted_encodings/1]).
--export([accepts_content_type/1]).
+-export([accepts_content_type/1, accepted_content_types/1]).
 
 -define(SAVE_QS, mochiweb_request_qs).
 -define(SAVE_PATH, mochiweb_request_path).
@@ -32,8 +32,6 @@
 -define(SAVE_COOKIE, mochiweb_request_cookie).
 -define(SAVE_FORCE_CLOSE, mochiweb_request_force_close).
 
-%% @type iolist() = [iolist() | binary() | char()].
-%% @type iodata() = binary() | iolist().
 %% @type key() = atom() | string() | binary()
 %% @type value() = atom() | string() | binary() | integer()
 %% @type headers(). A mochiweb_headers structure.
@@ -223,7 +221,8 @@ stream_body(MaxChunkSize, ChunkFun, FunState, MaxBodyLength) ->
              end,
     case Expect of
         "100-continue" ->
-            start_raw_response({100, gb_trees:empty()});
+            _ = start_raw_response({100, gb_trees:empty()}),
+            ok;
         _Else ->
             ok
     end,
@@ -399,14 +398,11 @@ should_close() ->
 %% @doc Clean up any junk in the process dictionary, required before continuing
 %%      a Keep-Alive request.
 cleanup() ->
-    [erase(K) || K <- [?SAVE_QS,
-                       ?SAVE_PATH,
-                       ?SAVE_RECV,
-                       ?SAVE_BODY,
-                       ?SAVE_BODY_LENGTH,
-                       ?SAVE_POST,
-                       ?SAVE_COOKIE,
-                       ?SAVE_FORCE_CLOSE]],
+    L = [?SAVE_QS, ?SAVE_PATH, ?SAVE_RECV, ?SAVE_BODY, ?SAVE_BODY_LENGTH,
+         ?SAVE_POST, ?SAVE_COOKIE, ?SAVE_FORCE_CLOSE],
+    lists:foreach(fun(K) ->
+                          erase(K)
+                  end, L),
     ok.
 
 %% @spec parse_qs() -> [{Key::string(), Value::string()}]
@@ -498,10 +494,10 @@ stream_unchunked_body(Length, Fun, FunState) when Length > 0 ->
 %% @spec read_chunk_length() -> integer()
 %% @doc Read the length of the next HTTP chunk.
 read_chunk_length() ->
-    mochiweb_socket:setopts(Socket, [{packet, line}]),
+    ok = mochiweb_socket:setopts(Socket, [{packet, line}]),
     case mochiweb_socket:recv(Socket, 0, ?IDLE_TIMEOUT) of
         {ok, Header} ->
-            mochiweb_socket:setopts(Socket, [{packet, raw}]),
+            ok = mochiweb_socket:setopts(Socket, [{packet, raw}]),
             Splitter = fun (C) ->
                                C =/= $\r andalso C =/= $\n andalso C =/= $
                        end,
@@ -515,7 +511,7 @@ read_chunk_length() ->
 %% @doc Read in a HTTP chunk of the given length. If Length is 0, then read the
 %%      HTTP footers (as a list of binaries, since they're nominal).
 read_chunk(0) ->
-    mochiweb_socket:setopts(Socket, [{packet, line}]),
+    ok = mochiweb_socket:setopts(Socket, [{packet, line}]),
     F = fun (F1, Acc) ->
                 case mochiweb_socket:recv(Socket, 0, ?IDLE_TIMEOUT) of
                     {ok, <<"\r\n">>} ->
@@ -527,7 +523,7 @@ read_chunk(0) ->
                 end
         end,
     Footers = F(F, []),
-    mochiweb_socket:setopts(Socket, [{packet, raw}]),
+    ok = mochiweb_socket:setopts(Socket, [{packet, raw}]),
     put(?SAVE_RECV, true),
     Footers;
 read_chunk(Length) ->
@@ -612,7 +608,7 @@ maybe_serve_file(File, ExtraHeaders) ->
                                       [{"last-modified", LastModified}
                                        | ExtraHeaders],
                                       {file, IoDevice}}),
-                            file:close(IoDevice),
+                            ok = file:close(IoDevice),
                             Res;
                         _ ->
                             not_found(ExtraHeaders)
@@ -729,16 +725,9 @@ accepted_encodings(SupportedEncodings) ->
 %%      5) For an "Accept" header with value "text/*; q=0.0, */*":
 %%         accepts_content_type("text/plain") -> false
 %%
-accepts_content_type(ContentType) when is_binary(ContentType) ->
-    accepts_content_type(binary_to_list(ContentType));
 accepts_content_type(ContentType1) ->
     ContentType = re:replace(ContentType1, "\\s", "", [global, {return, list}]),
-    AcceptHeader = case get_header_value("Accept") of
-        undefined ->
-            "*/*";
-        Value ->
-            Value
-    end,
+    AcceptHeader = accept_header(),
     case mochiweb_util:parse_qvalues(AcceptHeader) of
         invalid_qvalue_string ->
             bad_accept_header;
@@ -757,6 +746,80 @@ accepts_content_type(ContentType1) ->
             ) andalso
             (not lists:member({ContentType, 0.0}, QList)) andalso
             (not lists:member({SuperType, 0.0}, QList))
+    end.
+
+%% @spec accepted_content_types([string() | binary()]) -> [string()] | bad_accept_header
+%%
+%% @doc Filters which of the given media types this request accepts. This filtering
+%%      is performed by analyzing the "Accept" header. The returned list is sorted
+%%      according to the preferences specified in the "Accept" header (higher Q values
+%%      first). If two or more types have the same preference (Q value), they're order
+%%      in the returned list is the same as they're order in the input list.
+%%
+%%      Examples
+%%
+%%      1) For a missing "Accept" header:
+%%         accepted_content_types(["text/html", "application/json"]) ->
+%%             ["text/html", "application/json"]
+%%
+%%      2) For an "Accept" header with value "text/html, application/*":
+%%         accepted_content_types(["application/json", "text/html"]) ->
+%%             ["application/json", "text/html"]
+%%
+%%      3) For an "Accept" header with value "text/html, */*; q=0.0":
+%%         accepted_content_types(["text/html", "application/json"]) ->
+%%             ["text/html"]
+%%
+%%      4) For an "Accept" header with value "text/html; q=0.5, */*; q=0.1":
+%%         accepts_content_types(["application/json", "text/html"]) ->
+%%             ["text/html", "application/json"]
+%%
+accepted_content_types(Types1) ->
+    Types = lists:map(
+        fun(T) -> re:replace(T, "\\s", "", [global, {return, list}]) end,
+        Types1),
+    AcceptHeader = accept_header(),
+    case mochiweb_util:parse_qvalues(AcceptHeader) of
+        invalid_qvalue_string ->
+            bad_accept_header;
+        QList ->
+            TypesQ = lists:foldr(
+                fun(T, Acc) ->
+                    case proplists:get_value(T, QList) of
+                        undefined ->
+                            [MainType, _SubType] = string:tokens(T, "/"),
+                            case proplists:get_value(MainType ++ "/*", QList) of
+                                undefined ->
+                                    case proplists:get_value("*/*", QList) of
+                                        Q when is_float(Q), Q > 0.0 ->
+                                            [{Q, T} | Acc];
+                                        _ ->
+                                            Acc
+                                    end;
+                                Q when Q > 0.0 ->
+                                    [{Q, T} | Acc];
+                                _ ->
+                                    Acc
+                            end;
+                        Q when Q > 0.0 ->
+                            [{Q, T} | Acc];
+                        _ ->
+                            Acc
+                    end
+                end,
+                [], Types),
+            % Note: Stable sort. If 2 types have the same Q value we leave them in the
+            % same order as in the input list.
+            SortFun = fun({Q1, _}, {Q2, _}) -> Q1 >= Q2 end,
+            [Type || {_Q, Type} <- lists:sort(SortFun, TypesQ)]
+    end.
+
+accept_header() ->
+    case get_header_value("Accept") of
+        undefined ->
+            "*/*";
+        Value ->
+            Value
     end.
 
 %%
