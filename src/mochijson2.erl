@@ -43,7 +43,7 @@
 -export([decoder/1, decode/1, decode/2]).
 
 %% This is a macro to placate syntax highlighters..
--define(Q, $\").
+-define(Q, $\"). %"
 -define(ADV_COL(S, N), S#decoder{offset=N+S#decoder.offset,
                                  column=N+S#decoder.column}).
 -define(INC_COL(S), S#decoder{offset=1+S#decoder.offset,
@@ -135,6 +135,8 @@ json_encode(true, _State) ->
     <<"true">>;
 json_encode(false, _State) ->
     <<"false">>;
+json_encode(undefined, _State) ->
+    <<"null">>;
 json_encode(null, _State) ->
     <<"null">>;
 json_encode(I, _State) when is_integer(I) ->
@@ -260,7 +262,7 @@ json_bin_is_safe(<<C, Rest/binary>>) ->
     end.
 
 json_encode_string_unicode([], _State, Acc) ->
-    lists:reverse([$\" | Acc]);
+    lists:reverse([$\" | Acc]); %"
 json_encode_string_unicode([C | Cs], State, Acc) ->
     Acc1 = case C of
                ?Q ->
@@ -429,7 +431,7 @@ tokenize_string(B, S=#decoder{offset=O}, Acc) ->
         <<_:O/binary, ?Q, _/binary>> ->
             {{const, iolist_to_binary(lists:reverse(Acc))}, ?INC_COL(S)};
         <<_:O/binary, "\\\"", _/binary>> ->
-            tokenize_string(B, ?ADV_COL(S, 2), [$\" | Acc]);
+            tokenize_string(B, ?ADV_COL(S, 2), [$\" | Acc]); %"
         <<_:O/binary, "\\\\", _/binary>> ->
             tokenize_string(B, ?ADV_COL(S, 2), [$\\ | Acc]);
         <<_:O/binary, "\\/", _/binary>> ->
@@ -560,7 +562,7 @@ tokenize(B, S=#decoder{offset=O}) ->
         <<_:O/binary, ":", _/binary>> ->
             {colon, ?INC_COL(S)};
         <<_:O/binary, "null", _/binary>> ->
-            {{const, null}, ?ADV_COL(S, 4)};
+            {{const, undefined}, ?ADV_COL(S, 4)};
         <<_:O/binary, "true", _/binary>> ->
             {{const, true}, ?ADV_COL(S, 4)};
         <<_:O/binary, "false", _/binary>> ->
@@ -608,7 +610,7 @@ equiv(L1, L2) when is_list(L1), is_list(L2) ->
     equiv_list(L1, L2);
 equiv(N1, N2) when is_number(N1), is_number(N2) -> N1 == N2;
 equiv(B1, B2) when is_binary(B1), is_binary(B2) -> B1 == B2;
-equiv(A, A) when A =:= true orelse A =:= false orelse A =:= null -> true.
+equiv(A, A) when A =:= true orelse A =:= false orelse A =:= undefined -> true.
 
 %% Object representation and traversal order is unknown.
 %% Use the sledgehammer and sort property lists.
@@ -684,7 +686,7 @@ e2j_test_vec(utf8) ->
       "{\"foo\":[],\"bar\":{\"baz\":true},\"alice\":\"bob\"}"},
 
      %% json object in a json array
-     {[-123, <<"foo">>, obj_from_list([{<<"bar">>, []}]), null],
+     {[-123, <<"foo">>, obj_from_list([{<<"bar">>, []}]), undefined],
       "[-123,\"foo\",{\"bar\":[]},null]"}
     ].
 
