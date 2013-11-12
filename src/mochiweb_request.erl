@@ -12,7 +12,7 @@
 -define(QUIP, "Any of you quaids got a smint?").
 
 -export([new/5]).
--export([get_header_value/2, get_primary_header_value/2, get/2, dump/1]).
+-export([get_header_value/2, get_primary_header_value/2, get_combined_header_value/2, get/2, dump/1]).
 -export([send/2, recv/2, recv/3, recv_body/1, recv_body/2, stream_body/4]).
 -export([start_response/2, start_response_length/2, start_raw_response/2]).
 -export([respond/2, ok/2]).
@@ -22,7 +22,7 @@
 -export([parse_cookie/1, get_cookie_value/2]).
 -export([serve_file/3, serve_file/4]).
 -export([accepted_encodings/2]).
--export([accepts_content_type/2]).
+-export([accepts_content_type/2, accepted_content_types/2]).
 
 -define(SAVE_QS, mochiweb_request_qs).
 -define(SAVE_PATH, mochiweb_request_path).
@@ -60,6 +60,9 @@ get_header_value(K, {?MODULE, [_Socket, _Method, _RawPath, _Version, Headers]}) 
 
 get_primary_header_value(K, {?MODULE, [_Socket, _Method, _RawPath, _Version, Headers]}) ->
     mochiweb_headers:get_primary_value(K, Headers).
+
+get_combined_header_value(K, {?MODULE, [_Socket, _Method, _RawPath, _Version, Headers]}) ->
+    mochiweb_headers:get_combined_value(K, Headers).
 
 %% @type field() = socket | scheme | method | raw_path | version | headers | peer | path | body_length | range
 
@@ -176,7 +179,7 @@ recv(Length, Timeout, {?MODULE, [Socket, _Method, _RawPath, _Version, _Headers]}
 body_length({?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
     case get_header_value("transfer-encoding", THIS) of
         undefined ->
-            case get_header_value("content-length", THIS) of
+            case get_combined_header_value("content-length", THIS) of
                 undefined ->
                     undefined;
                 Length ->
@@ -272,8 +275,7 @@ start_response({Code, ResponseHeaders},
 %% @spec start_raw_response({integer(), headers()}, request()) -> response()
 %% @doc Start the HTTP response by sending the Code HTTP response and
 %%      ResponseHeaders.
-start_raw_response({Code, ResponseHeaders},
-                   {?MODULE, [_Socket, _Method, _RawPath, Version, _Headers]}=THIS) ->
+start_raw_response({Code, ResponseHeaders}, {?MODULE, [_Socket, _Method, _RawPath, Version, _Headers]}=THIS) ->
     F = fun ({K, V}, Acc) ->
                 [mochiweb_util:make_io(K), <<": ">>, V, <<"\r\n">> | Acc]
         end,
@@ -281,6 +283,7 @@ start_raw_response({Code, ResponseHeaders},
                       mochiweb_headers:to_list(ResponseHeaders)),
     send([make_version(Version), make_code(Code), <<"\r\n">> | End], THIS),
     mochiweb:new_response({THIS, Code, ResponseHeaders}).
+
 
 %% @spec start_response_length({integer(), ioheaders(), integer()}, request()) -> response()
 %% @doc Start the HTTP response by sending the Code HTTP response and
@@ -306,11 +309,12 @@ respond({Code, ResponseHeaders, {file, IoDevice}},
         'HEAD' ->
             ok;
         _ ->
-            mochiweb_io:iodevice_stream(fun send/2, IoDevice)
+            mochiweb_io:iodevice_stream(
+              fun (Body) -> send(Body, THIS) end,
+              IoDevice)
     end,
     Response;
-respond({Code, ResponseHeaders, chunked},
-        {?MODULE, [_Socket, Method, _RawPath, Version, _Headers]}=THIS) ->
+respond({Code, ResponseHeaders, chunked}, {?MODULE, [_Socket, Method, _RawPath, Version, _Headers]}=THIS) ->
     HResponse = mochiweb_headers:make(ResponseHeaders),
     HResponse1 = case Method of
                      'HEAD' ->
@@ -332,8 +336,7 @@ respond({Code, ResponseHeaders, chunked},
                          HResponse
                  end,
     start_response({Code, HResponse1}, THIS);
-respond({Code, ResponseHeaders, Body},
-        {?MODULE, [_Socket, Method, _RawPath, _Version, _Headers]}=THIS) ->
+respond({Code, ResponseHeaders, Body}, {?MODULE, [_Socket, Method, _RawPath, _Version, _Headers]}=THIS) ->
     BodySize = iolist_size(Body),
     Response = start_response_length({Code, ResponseHeaders, BodySize}, THIS),
     if Method == 'HEAD'; BodySize == 0 -> ok;
@@ -356,11 +359,9 @@ not_found(ExtraHeaders, {?MODULE, [_Socket, _Method, _RawPath, _Version, _Header
 %% @spec ok({value(), iodata()} | {value(), ioheaders(), iodata() | {file, IoDevice}}, request()) ->
 %%           response()
 %% @doc respond({200, [{"Content-Type", ContentType} | Headers], Body}).
-ok({ContentType, Body},
-   {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
+ok({ContentType, Body}, {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
     ok({ContentType, [], Body}, THIS);
-ok({ContentType, ResponseHeaders, Body},
-   {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
+ok({ContentType, ResponseHeaders, Body}, {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
     HResponse = mochiweb_headers:make(ResponseHeaders),
     case THIS:get(range) of
         X when (X =:= undefined orelse X =:= fail) orelse Body =:= chunked ->
@@ -404,23 +405,27 @@ should_close({?MODULE, [_Socket, _Method, _RawPath, Version, _Headers]}=THIS) ->
                 andalso get_header_value("connection", THIS) =/= "Keep-Alive")
         %% unread data left on the socket, can't safely continue
         orelse (DidNotRecv
-                andalso get_header_value("content-length", THIS) =/= undefined
-                andalso list_to_integer(get_header_value("content-length", THIS)) > 0)
+                andalso get_combined_header_value("content-length", THIS) =/= undefined
+                andalso list_to_integer(get_combined_header_value("content-length", THIS)) > 0)
         orelse (DidNotRecv
                 andalso get_header_value("transfer-encoding", THIS) =:= "chunked").
+
+is_close("close") ->
+    true;
+is_close(S=[_C, _L, _O, _S, _E]) ->
+    string:to_lower(S) =:= "close";
+is_close(_) ->
+    false.
 
 %% @spec cleanup(request()) -> ok
 %% @doc Clean up any junk in the process dictionary, required before continuing
 %%      a Keep-Alive request.
 cleanup({?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}) ->
-    [erase(K) || K <- [?SAVE_QS,
-                       ?SAVE_PATH,
-                       ?SAVE_RECV,
-                       ?SAVE_BODY,
-                       ?SAVE_BODY_LENGTH,
-                       ?SAVE_POST,
-                       ?SAVE_COOKIE,
-                       ?SAVE_FORCE_CLOSE]],
+    L = [?SAVE_QS, ?SAVE_PATH, ?SAVE_RECV, ?SAVE_BODY, ?SAVE_BODY_LENGTH,
+         ?SAVE_POST, ?SAVE_COOKIE, ?SAVE_FORCE_CLOSE],
+    lists:foreach(fun(K) ->
+                          erase(K)
+                  end, L),
     ok.
 
 %% @spec parse_qs(request()) -> [{Key::string(), Value::string()}]
@@ -468,7 +473,7 @@ parse_post({?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
                          undefined ->
                              [];
                          Binary ->
-                             case get_primary_header_value("content-type", THIS) of
+                             case get_primary_header_value("content-type",THIS) of
                                  "application/x-www-form-urlencoded" ++ _ ->
                                      mochiweb_util:parse_qs(Binary);
                                  _ ->
@@ -497,8 +502,7 @@ stream_chunked_body(MaxChunkSize, Fun, FunState,
             stream_chunked_body(MaxChunkSize, Fun, NewState, THIS)
     end.
 
-stream_unchunked_body(0, Fun, FunState,
-                      {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}) ->
+stream_unchunked_body(0, Fun, FunState, {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}) ->
     Fun({0, <<>>}, FunState);
 stream_unchunked_body(Length, Fun, FunState,
                       {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) when Length > 0 ->
@@ -515,7 +519,7 @@ stream_unchunked_body(Length, Fun, FunState,
 %% @spec read_chunk_length(request()) -> integer()
 %% @doc Read the length of the next HTTP chunk.
 read_chunk_length({?MODULE, [Socket, _Method, _RawPath, _Version, _Headers]}) ->
-    mochiweb_socket:setopts(Socket, [{packet, line}]),
+    ok = mochiweb_socket:setopts(Socket, [{packet, line}]),
     case mochiweb_socket:recv(Socket, 0, ?IDLE_TIMEOUT) of
         {ok, Header} ->
             mochiweb_socket:setopts(Socket, [{packet, raw}]),
@@ -532,7 +536,7 @@ read_chunk_length({?MODULE, [Socket, _Method, _RawPath, _Version, _Headers]}) ->
 %% @doc Read in a HTTP chunk of the given length. If Length is 0, then read the
 %%      HTTP footers (as a list of binaries, since they're nominal).
 read_chunk(0, {?MODULE, [Socket, _Method, _RawPath, _Version, _Headers]}) ->
-    mochiweb_socket:setopts(Socket, [{packet, line}]),
+    ok = mochiweb_socket:setopts(Socket, [{packet, line}]),
     F = fun (F1, Acc) ->
                 case mochiweb_socket:recv(Socket, 0, ?IDLE_TIMEOUT) of
                     {ok, <<"\r\n">>} ->
@@ -572,11 +576,10 @@ serve_file(Path, DocRoot, {?MODULE, [_Socket, _Method, _RawPath, _Version, _Head
 
 %% @spec serve_file(Path, DocRoot, ExtraHeaders, request()) -> Response
 %% @doc Serve a file relative to DocRoot.
-serve_file(Path, DocRoot, ExtraHeaders,
-           {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
+serve_file(Path, DocRoot, ExtraHeaders, {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
     case mochiweb_util:safe_relative_path(Path) of
         undefined ->
-            not_found(ExtraHeaders);
+            not_found(ExtraHeaders, THIS);
         RelPath ->
             FullPath = filename:join([DocRoot, RelPath]),
             case filelib:is_dir(FullPath) of
@@ -593,8 +596,7 @@ serve_file(Path, DocRoot, ExtraHeaders,
 directory_index(FullPath) ->
     filename:join([FullPath, "index.html"]).
 
-maybe_redirect([], FullPath, ExtraHeaders,
-               {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
+maybe_redirect([], FullPath, ExtraHeaders, {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
     maybe_serve_file(directory_index(FullPath), ExtraHeaders, THIS);
 
 maybe_redirect(RelPath, FullPath, ExtraHeaders,
@@ -619,8 +621,7 @@ maybe_redirect(RelPath, FullPath, ExtraHeaders,
             respond({301, MoreHeaders, Body}, THIS)
     end.
 
-maybe_serve_file(File, ExtraHeaders,
-                 {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
+maybe_serve_file(File, ExtraHeaders, {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
     case file:read_file_info(File) of
         {ok, FileInfo} ->
             LastModified = httpd_util:rfc1123_date(FileInfo#file_info.mtime),
@@ -635,7 +636,7 @@ maybe_serve_file(File, ExtraHeaders,
                                       [{"last-modified", LastModified}
                                        | ExtraHeaders],
                                       {file, IoDevice}}, THIS),
-                            file:close(IoDevice),
+                            ok = file:close(IoDevice),
                             Res;
                         _ ->
                             not_found(ExtraHeaders, THIS)
@@ -672,7 +673,12 @@ range_parts({file, IoDevice}, Ranges) ->
     LocNums = lists:foldr(F, [], Ranges),
     {ok, Data} = file:pread(IoDevice, LocNums),
     Bodies = lists:zipwith(fun ({Skip, Length}, PartialBody) ->
-                                   {Skip, Skip + Length - 1, PartialBody}
+                                   case Length of
+                                       0 ->
+                                           {Skip, Skip, <<>>};
+                                       _ ->
+                                           {Skip, Skip + Length - 1, PartialBody}
+                                   end
                            end,
                            LocNums, Data),
     {Bodies, Size};
@@ -752,18 +758,9 @@ accepted_encodings(SupportedEncodings, {?MODULE, [_Socket, _Method, _RawPath, _V
 %%      5) For an "Accept" header with value "text/*; q=0.0, */*":
 %%         accepts_content_type("text/plain") -> false
 %%
-accepts_content_type(ContentType,
-                     {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) when is_binary(ContentType) ->
-    accepts_content_type(binary_to_list(ContentType), THIS);
-accepts_content_type(ContentType1,
-                     {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
+accepts_content_type(ContentType1, {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
     ContentType = re:replace(ContentType1, "\\s", "", [global, {return, list}]),
-    AcceptHeader = case get_header_value("Accept", THIS) of
-        undefined ->
-            "*/*";
-        Value ->
-            Value
-    end,
+    AcceptHeader = accept_header(THIS),
     case mochiweb_util:parse_qvalues(AcceptHeader) of
         invalid_qvalue_string ->
             bad_accept_header;
@@ -782,6 +779,80 @@ accepts_content_type(ContentType1,
             ) andalso
             (not lists:member({ContentType, 0.0}, QList)) andalso
             (not lists:member({SuperType, 0.0}, QList))
+    end.
+
+%% @spec accepted_content_types([string() | binary()], request()) -> [string()] | bad_accept_header
+%%
+%% @doc Filters which of the given media types this request accepts. This filtering
+%%      is performed by analyzing the "Accept" header. The returned list is sorted
+%%      according to the preferences specified in the "Accept" header (higher Q values
+%%      first). If two or more types have the same preference (Q value), they're order
+%%      in the returned list is the same as they're order in the input list.
+%%
+%%      Examples
+%%
+%%      1) For a missing "Accept" header:
+%%         accepted_content_types(["text/html", "application/json"]) ->
+%%             ["text/html", "application/json"]
+%%
+%%      2) For an "Accept" header with value "text/html, application/*":
+%%         accepted_content_types(["application/json", "text/html"]) ->
+%%             ["application/json", "text/html"]
+%%
+%%      3) For an "Accept" header with value "text/html, */*; q=0.0":
+%%         accepted_content_types(["text/html", "application/json"]) ->
+%%             ["text/html"]
+%%
+%%      4) For an "Accept" header with value "text/html; q=0.5, */*; q=0.1":
+%%         accepts_content_types(["application/json", "text/html"]) ->
+%%             ["text/html", "application/json"]
+%%
+accepted_content_types(Types1, {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
+    Types = lists:map(
+        fun(T) -> re:replace(T, "\\s", "", [global, {return, list}]) end,
+        Types1),
+    AcceptHeader = accept_header(THIS),
+    case mochiweb_util:parse_qvalues(AcceptHeader) of
+        invalid_qvalue_string ->
+            bad_accept_header;
+        QList ->
+            TypesQ = lists:foldr(
+                fun(T, Acc) ->
+                    case proplists:get_value(T, QList) of
+                        undefined ->
+                            [MainType, _SubType] = string:tokens(T, "/"),
+                            case proplists:get_value(MainType ++ "/*", QList) of
+                                undefined ->
+                                    case proplists:get_value("*/*", QList) of
+                                        Q when is_float(Q), Q > 0.0 ->
+                                            [{Q, T} | Acc];
+                                        _ ->
+                                            Acc
+                                    end;
+                                Q when Q > 0.0 ->
+                                    [{Q, T} | Acc];
+                                _ ->
+                                    Acc
+                            end;
+                        Q when Q > 0.0 ->
+                            [{Q, T} | Acc];
+                        _ ->
+                            Acc
+                    end
+                end,
+                [], Types),
+            % Note: Stable sort. If 2 types have the same Q value we leave them in the
+            % same order as in the input list.
+            SortFun = fun({Q1, _}, {Q2, _}) -> Q1 >= Q2 end,
+            [Type || {_Q, Type} <- lists:sort(SortFun, TypesQ)]
+    end.
+
+accept_header({?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
+    case get_header_value("Accept", THIS) of
+        undefined ->
+            "*/*";
+        Value ->
+            Value
     end.
 
 %%

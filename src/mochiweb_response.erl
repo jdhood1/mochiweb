@@ -18,7 +18,8 @@
 new(Request, Code, Headers) ->
     {?MODULE, [Request, Code, Headers]}.
 
-%% @spec get_header_value(string() | atom() | binary(), response()) -> string() | undefined
+%% @spec get_header_value(string() | atom() | binary(), response()) ->
+%%           string() | undefined
 %% @doc Get the value of the given response header.
 get_header_value(K, {?MODULE, [_Request, _Code, Headers]}) ->
     mochiweb_headers:get_value(K, Headers).

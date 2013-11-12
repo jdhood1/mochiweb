@@ -47,13 +47,9 @@ set(Name, Property, _Value) ->
     error_logger:info_msg("?MODULE:set for ~p with ~p not implemented~n",
                           [Name, Property]).
 
-stop(Name) when is_atom(Name) ->
-    gen_server:cast(Name, stop);
-stop(Pid) when is_pid(Pid) ->
-    gen_server:cast(Pid, stop);
-stop({local, Name}) ->
-    stop(Name);
-stop({global, Name}) ->
+stop(Name) when is_atom(Name) orelse is_pid(Name) ->
+    gen_server:call(Name, stop);
+stop({Scope, Name}) when Scope =:= local orelse Scope =:= global ->
     stop(Name);
 stop(Options) ->
     State = parse_options(Options),
@@ -132,6 +128,14 @@ start_server(State=#mochiweb_socket_server{ssl=Ssl, name=Name}) ->
             gen_server:start_link(Name, ?MODULE, State, [])
     end.
 
+prep_ssl(true) ->
+    ok = mochiweb:ensure_started(crypto),
+    ok = mochiweb:ensure_started(asn1),
+    ok = mochiweb:ensure_started(public_key),
+    ok = mochiweb:ensure_started(ssl);
+prep_ssl(false) ->
+    ok.
+
 ensure_int(N) when is_integer(N) ->
     N;
 ensure_int(S) when is_list(S) ->
@@ -152,6 +156,7 @@ init(State=#mochiweb_socket_server{ip=Ip, port=Port, backlog=Backlog, nodelay=No
                 {packet, 0},
                 {backlog, Backlog},
                 {recbuf, ?RECBUF_SIZE},
+                {exit_on_close, false},
                 {active, false},
                 {nodelay, NoDelay}],
     Opts = case Ip of
@@ -240,6 +245,8 @@ handle_call(Req, From, State) when ?is_old_state(State) ->
 handle_call({get, Property}, _From, State) ->
     Res = do_get(Property, State),
     {reply, Res, State};
+handle_call(stop, _From, State) ->
+    {stop, normal, ok, State};
 handle_call(_Message, _From, State) ->
     Res = error,
     {reply, Res, State}.
@@ -264,9 +271,7 @@ handle_cast({set, profile_fun, ProfileFun}, State) ->
                  _ ->
                      State
              end,
-    {noreply, State1};
-handle_cast(stop, State) ->
-    {stop, normal, State}.
+    {noreply, State1}.
 
 
 terminate(Reason, State) when ?is_old_state(State) ->
@@ -361,4 +366,3 @@ upgrade_state_test() ->
     ?assertEqual(CmpState, State).
 
 -endif.
-

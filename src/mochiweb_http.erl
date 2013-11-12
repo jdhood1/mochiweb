@@ -17,6 +17,12 @@
 -define(DEFAULTS, [{name, ?MODULE},
                    {port, 8888}]).
 
+-ifdef(gen_tcp_r15b_workaround).
+r15b_workaround() -> true.
+-else.
+r15b_workaround() -> false.
+-endif.
+
 parse_options(Options) ->
     {loop, HttpLoop} = proplists:lookup(loop, Options),
     Loop = fun (S) ->
@@ -121,8 +127,8 @@ request(Socket, Body, Prev) ->
         {ssl_closed, _} ->
             mochiweb_socket:close(Socket),
             exit(normal);
-        _Other ->
-            handle_invalid_request(Socket)
+        Other ->
+            handle_invalid_msg_request(Other, Socket)
     after ?REQUEST_RECV_TIMEOUT ->
         mochiweb_socket:close(Socket),
         exit(normal)
@@ -165,11 +171,8 @@ collect_headers(Socket, Request, Body, Collected, Trunc, HeaderCount) ->
         {tcp_closed, _} ->
             mochiweb_socket:close(Socket),
             exit(normal);
-        {ssl_closed, _} ->
-            mochiweb_socket:close(Socket),
-            exit(normal);
-        _Other ->
-            handle_invalid_request(Socket, Request, [])
+        Other ->
+            handle_invalid_msg_request(Other, Socket, Request, Headers)
     after ?HEADERS_RECV_TIMEOUT ->
         mochiweb_socket:close(Socket),
         exit(normal)
@@ -198,9 +201,20 @@ call_body({M, F}, Req) ->
 call_body(Body, Req) ->
     Body(Req).
 
-handle_invalid_request(Socket) ->
-    handle_invalid_request(Socket, {'GET', {abs_path, "/"}, {0,9}}, []),
-    exit(normal).
+-spec handle_invalid_msg_request(term(), term()) -> no_return().
+handle_invalid_msg_request(Msg, Socket) ->
+    handle_invalid_msg_request(Msg, Socket, {'GET', {abs_path, "/"}, {0,9}}, []).
+
+-spec handle_invalid_msg_request(term(), term(), term(), term()) -> no_return().
+handle_invalid_msg_request(Msg, Socket, Request, RevHeaders) ->
+    case {Msg, r15b_workaround()} of
+        {{tcp_error,_,emsgsize}, true} ->
+            %% R15B02 returns this then closes the socket, so close and exit
+            mochiweb_socket:close(Socket),
+            exit(normal);
+        _ ->
+            handle_invalid_request(Socket, Request, RevHeaders)
+    end.
 
 handle_invalid_request(Socket, Request, RevHeaders) ->
     Req = new_request(Socket, Request, RevHeaders),

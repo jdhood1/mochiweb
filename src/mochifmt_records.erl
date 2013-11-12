@@ -16,7 +16,8 @@
 new([{_Rec, RecFields}]=Recs) when is_list(RecFields) ->
     {?MODULE, Recs}.
 
-get_value(Key, Rec, {?MODULE, Recs}) when is_tuple(Rec) and is_atom(element(1, Rec)) ->
+get_value(Key, Rec, {?MODULE, Recs})
+  when is_tuple(Rec) and is_atom(element(1, Rec)) ->
     try begin
             Atom = list_to_existing_atom(Key),
             {_, Fields} = proplists:lookup(element(1, Rec), Recs),
