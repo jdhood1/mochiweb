@@ -33,8 +33,6 @@
 -define(SAVE_COOKIE, mochiweb_request_cookie).
 -define(SAVE_FORCE_CLOSE, mochiweb_request_force_close).
 
-%% @type iolist() = [iolist() | binary() | char()].
-%% @type iodata() = binary() | iolist().
 %% @type key() = atom() | string() | binary()
 %% @type value() = atom() | string() | binary() | integer()
 %% @type headers(). A mochiweb_headers structure.
@@ -221,8 +219,7 @@ recv_body(MaxBody, {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=T
         Cached -> Cached
     end.
 
-stream_body(MaxChunkSize, ChunkFun, FunState,
-            {?MODULE,[_Socket,_Method,_RawPath,_Version,_Headers]}=THIS) ->
+stream_body(MaxChunkSize, ChunkFun, FunState, {?MODULE,[_Socket,_Method,_RawPath,_Version,_Headers]}=THIS) ->
     stream_body(MaxChunkSize, ChunkFun, FunState, undefined, THIS).
 
 stream_body(MaxChunkSize, ChunkFun, FunState, MaxBodyLength,
@@ -235,7 +232,8 @@ stream_body(MaxChunkSize, ChunkFun, FunState, MaxBodyLength,
              end,
     case Expect of
         "100-continue" ->
-            start_raw_response({100, gb_trees:empty()}, THIS);
+            _ = start_raw_response({100, gb_trees:empty()}, THIS),
+            ok;
         _Else ->
             ok
     end,
@@ -265,8 +263,7 @@ stream_body(MaxChunkSize, ChunkFun, FunState, MaxBodyLength,
 %% @doc Start the HTTP response by sending the Code HTTP response and
 %%      ResponseHeaders. The server will set header defaults such as Server
 %%      and Date if not present in ResponseHeaders.
-start_response({Code, ResponseHeaders},
-               {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
+start_response({Code, ResponseHeaders}, {?MODULE, [_Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
     HResponse = mochiweb_headers:make(ResponseHeaders),
     HResponse1 = mochiweb_headers:default_from_list(server_headers(),
                                                     HResponse),
@@ -399,7 +396,7 @@ should_close({?MODULE, [_Socket, _Method, _RawPath, Version, _Headers]}=THIS) ->
     DidNotRecv = erlang:get(?SAVE_RECV) =:= undefined,
     ForceClose orelse Version < {1, 0}
         %% Connection: close
-        orelse get_header_value("connection", THIS) =:= "close"
+        orelse is_close(get_header_value("connection", THIS))
         %% HTTP 1.0 requires Connection: Keep-Alive
         orelse (Version =:= {1, 0}
                 andalso get_header_value("connection", THIS) =/= "Keep-Alive")
@@ -522,7 +519,7 @@ read_chunk_length({?MODULE, [Socket, _Method, _RawPath, _Version, _Headers]}) ->
     ok = mochiweb_socket:setopts(Socket, [{packet, line}]),
     case mochiweb_socket:recv(Socket, 0, ?IDLE_TIMEOUT) of
         {ok, Header} ->
-            mochiweb_socket:setopts(Socket, [{packet, raw}]),
+            ok = mochiweb_socket:setopts(Socket, [{packet, raw}]),
             Splitter = fun (C) ->
                                C =/= $\r andalso C =/= $\n andalso C =/= $
                        end,
@@ -548,7 +545,7 @@ read_chunk(0, {?MODULE, [Socket, _Method, _RawPath, _Version, _Headers]}) ->
                 end
         end,
     Footers = F(F, []),
-    mochiweb_socket:setopts(Socket, [{packet, raw}]),
+    ok = mochiweb_socket:setopts(Socket, [{packet, raw}]),
     put(?SAVE_RECV, true),
     Footers;
 read_chunk(Length, {?MODULE, [Socket, _Method, _RawPath, _Version, _Headers]}) ->

@@ -520,8 +520,6 @@ tokenize_quoted_attr_value(B, S=#decoder{offset=O}, Acc, Q) ->
             tokenize_quoted_attr_value(B, S1, [Data|Acc], Q);
         <<_:O/binary, Q, _/binary>> ->
             { iolist_to_binary(lists:reverse(Acc)), ?INC_COL(S) };
-        <<_:O/binary, $\n, _/binary>> ->
-            { iolist_to_binary(lists:reverse(Acc)), ?INC_LINE(S) };
         <<_:O/binary, C, _/binary>> ->
             tokenize_quoted_attr_value(B, ?INC_COL(S), [C|Acc], Q)
     end.
@@ -622,32 +620,33 @@ find_gt(Bin, S=#decoder{offset=O}, HasSlash) ->
     end.
 
 tokenize_charref(Bin, S=#decoder{offset=O}) ->
-    tokenize_charref(Bin, S, O).
+    try
+        tokenize_charref(Bin, S, O)
+    catch
+        throw:invalid_charref ->
+            {{data, <<"&">>, false}, S}
+    end.
 
 tokenize_charref(Bin, S=#decoder{offset=O}, Start) ->
     case Bin of
         <<_:O/binary>> ->
-            <<_:Start/binary, Raw/binary>> = Bin,
-            {{data, Raw, false}, S};
+            throw(invalid_charref);
         <<_:O/binary, C, _/binary>> when ?IS_WHITESPACE(C)
                                          orelse C =:= ?SQUOTE
                                          orelse C =:= ?QUOTE
                                          orelse C =:= $/
                                          orelse C =:= $> ->
-            Len = O - Start,
-            <<_:Start/binary, Raw:Len/binary, _/binary>> = Bin,
-            {{data, Raw, false}, S};
+            throw(invalid_charref);
         <<_:O/binary, $;, _/binary>> ->
             Len = O - Start,
             <<_:Start/binary, Raw:Len/binary, _/binary>> = Bin,
             Data = case mochiweb_charref:charref(Raw) of
                        undefined ->
-                           Start1 = Start - 1,
-                           Len1 = Len + 2,
-                           <<_:Start1/binary, R:Len1/binary, _/binary>> = Bin,
-                           R;
-                       Unichar ->
-                           mochiutf8:codepoint_to_bytes(Unichar)
+                           throw(invalid_charref);
+                       Unichar when is_integer(Unichar) ->
+                           mochiutf8:codepoint_to_bytes(Unichar);
+                       Unichars when is_list(Unichars) ->
+                           unicode:characters_to_binary(Unichars)
                    end,
             {{data, Data, false}, ?INC_COL(S)};
         _ ->
