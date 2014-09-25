@@ -105,8 +105,8 @@ get(peer, {?MODULE, [Socket, _Method, _RawPath, _Version, _Headers]}=THIS) ->
             end;
         {ok, {Addr, _Port}} ->
             inet_parse:ntoa(Addr);
-        {error, enotconn} ->
-            exit(normal)
+        Error ->
+            exit(Error)
     end;
 get(path, {?MODULE, [_Socket, _Method, RawPath, _Version, _Headers]}) ->
     case erlang:get(?SAVE_PATH) of
@@ -150,8 +150,8 @@ send(Data, {?MODULE, [Socket, _Method, _RawPath, _Version, _Headers]}) ->
     case mochiweb_socket:send(Socket, Data) of
         ok ->
             ok;
-        _ ->
-            exit(normal)
+        Error ->
+            exit(Error)
     end.
 
 %% @spec recv(integer(), request()) -> binary()
@@ -168,8 +168,8 @@ recv(Length, Timeout, {?MODULE, [Socket, _Method, _RawPath, _Version, _Headers]}
         {ok, Data} ->
             put(?SAVE_RECV, true),
             Data;
-        _ ->
-            exit(normal)
+        Error ->
+            exit(Error)
     end.
 
 %% @spec body_length(request()) -> undefined | chunked | unknown_transfer_encoding | integer()
@@ -538,8 +538,8 @@ read_chunk_length({?MODULE, [Socket, _Method, _RawPath, _Version, _Headers]}) ->
                        end,
             {Hex, _Rest} = lists:splitwith(Splitter, binary_to_list(Header)),
             mochihex:to_int(Hex);
-        _ ->
-            exit(normal)
+        Error ->
+            exit(Error)
     end.
 
 %% @spec read_chunk(integer(), request()) -> Chunk::binary() | [Footer::binary()]
@@ -553,8 +553,8 @@ read_chunk(0, {?MODULE, [Socket, _Method, _RawPath, _Version, _Headers]}) ->
                         Acc;
                     {ok, Footer} ->
                         F1(F1, [Footer | Acc]);
-                    _ ->
-                        exit(normal)
+                    Error ->
+                        exit(Error)
                 end
         end,
     Footers = F(F, []),
@@ -565,8 +565,8 @@ read_chunk(Length, {?MODULE, [Socket, _Method, _RawPath, _Version, _Headers]}) -
     case mochiweb_socket:recv(Socket, 2 + Length, ?IDLE_TIMEOUT) of
         {ok, <<Chunk:Length/binary, "\r\n">>} ->
             Chunk;
-        _ ->
-            exit(normal)
+        Error ->
+            exit(Error)
     end.
 
 read_sub_chunks(Length, MaxChunkSize, Fun, FunState,

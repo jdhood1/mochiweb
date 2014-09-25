@@ -137,6 +137,8 @@ json_encode(false, _State) ->
     <<"false">>;
 json_encode(null, _State) ->
     <<"null">>;
+json_encode(undefined, _State) ->
+    <<"null">>;
 json_encode(I, _State) when is_integer(I) ->
     integer_to_list(I);
 json_encode(F, _State) when is_float(F) ->
@@ -560,7 +562,7 @@ tokenize(B, S=#decoder{offset=O}) ->
         <<_:O/binary, ":", _/binary>> ->
             {colon, ?INC_COL(S)};
         <<_:O/binary, "null", _/binary>> ->
-            {{const, null}, ?ADV_COL(S, 4)};
+            {{const, undefined}, ?ADV_COL(S, 4)};
         <<_:O/binary, "true", _/binary>> ->
             {{const, true}, ?ADV_COL(S, 4)};
         <<_:O/binary, "false", _/binary>> ->
@@ -608,7 +610,7 @@ equiv(L1, L2) when is_list(L1), is_list(L2) ->
     equiv_list(L1, L2);
 equiv(N1, N2) when is_number(N1), is_number(N2) -> N1 == N2;
 equiv(B1, B2) when is_binary(B1), is_binary(B2) -> B1 == B2;
-equiv(A, A) when A =:= true orelse A =:= false orelse A =:= null -> true.
+equiv(A, A) when A =:= true orelse A =:= false orelse A =:= undefined -> true.
 
 %% Object representation and traversal order is unknown.
 %% Use the sledgehammer and sort property lists.
@@ -684,7 +686,7 @@ e2j_test_vec(utf8) ->
       "{\"foo\":[],\"bar\":{\"baz\":true},\"alice\":\"bob\"}"},
 
      %% json object in a json array
-     {[-123, <<"foo">>, obj_from_list([{<<"bar">>, []}]), null],
+     {[-123, <<"foo">>, obj_from_list([{<<"bar">>, []}]), undefined],
       "[-123,\"foo\",{\"bar\":[]},null]"}
     ].
 
@@ -766,7 +768,7 @@ atom_test() ->
          ?assertEqual(A, decode(atom_to_list(A))),
          ?assertEqual(iolist_to_binary(atom_to_list(A)),
                       iolist_to_binary(encode(A)))
-     end || A <- [true, false, null]],
+     end || A <- [true, false]],
     %% Atom to string
     ?assertEqual(
        <<"\"foo\"">>,
