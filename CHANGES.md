@@ -1,7 +1,16 @@
-Version 2.8.1 released XXXX-XX-XX
+Version 2.9.1 released 2014-09-29
+
+* Fix Makefile rule for building docs
+  https://github.com/mochi/mochiweb/issues/135
+* Minimize gen_tcp:send calls to optimize performance.
+  https://github.com/mochi/mochiweb/pull/137
+
+Version 2.9.0 released 2014-06-24
 
 * Increased timeout in test suite for FreeBSD
   https://github.com/mochi/mochiweb/pull/121
+* Updated rebar to v2.5.0 and fixed associated build issues
+  https://github.com/mochi/mochiweb/issues/131
 
 Version 2.8.0 released 2014-01-01
 
