@@ -23,7 +23,7 @@
 
 -module(mochiweb_http).
 -author('bob@mochimedia.com').
--export([start/1, start_link/1, stop/0, stop/1, stop/2]).
+-export([start/1, start_link/1, stop/0, stop/1]).
 -export([loop/3]).
 -export([after_response/2, reentry/1]).
 -export([parse_range_request/1, range_skip_length/2]).
@@ -52,9 +52,6 @@ stop() ->
 
 stop(Name) ->
     mochiweb_socket_server:stop(Name).
-
-stop(Name, Timeout) ->
-    mochiweb_socket_server:stop(Name, Timeout).
 
 %% @spec start(Options) -> ServerRet
 %%     Options = [option()]
