@@ -24,6 +24,8 @@
 -module(mochiweb_multipart).
 -author('bob@mochimedia.com').
 
+-compile(tuple_calls).
+
 -export([parse_form/1, parse_form/2]).
 -export([parse_multipart_request/2]).
 -export([parts_to_body/3, parts_to_multipart_body/4]).
@@ -336,7 +338,7 @@ with_socket_server(Transport, ServerFun, ClientFun) ->
         plain ->
             gen_tcp:connect("127.0.0.1", Port, ClientOpts);
         ssl ->
-            ClientOpts1 = [{ssl_imp, new} | ClientOpts],
+            ClientOpts1 = mochiweb_test_util:ssl_client_opts(ClientOpts),
             {ok, SslSocket} = ssl:connect("127.0.0.1", Port, ClientOpts1),
             {ok, {ssl, SslSocket}}
     end,

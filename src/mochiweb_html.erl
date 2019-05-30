@@ -23,7 +23,6 @@
 -module(mochiweb_html).
 -export([tokens/1, parse/1, parse_tokens/1, to_tokens/1, escape/1,
          escape_attr/1, to_html/1]).
--compile([export_all]).
 -ifdef(TEST).
 -export([destack/1, destack/2, is_singleton/1]).
 -endif.
@@ -464,16 +463,21 @@ destack([{Tag, Attrs, Acc}]) ->
 destack([{T1, A1, Acc1}, {T0, A0, Acc0} | Rest]) ->
     destack([{T0, A0, [{T1, A1, lists:reverse(Acc1)} | Acc0]} | Rest]).
 
+is_singleton(<<"area">>) -> true;
+is_singleton(<<"base">>) -> true;
 is_singleton(<<"br">>) -> true;
+is_singleton(<<"col">>) -> true;
+is_singleton(<<"embed">>) -> true;
 is_singleton(<<"hr">>) -> true;
 is_singleton(<<"img">>) -> true;
 is_singleton(<<"input">>) -> true;
-is_singleton(<<"base">>) -> true;
-is_singleton(<<"meta">>) -> true;
+is_singleton(<<"keygen">>) -> true;
 is_singleton(<<"link">>) -> true;
-is_singleton(<<"area">>) -> true;
+is_singleton(<<"meta">>) -> true;
 is_singleton(<<"param">>) -> true;
-is_singleton(<<"col">>) -> true;
+is_singleton(<<"source">>) -> true;
+is_singleton(<<"track">>) -> true;
+is_singleton(<<"wbr">>) -> true;
 is_singleton(_) -> false.
 
 tokenize_data(B, S=#decoder{offset=O}) ->

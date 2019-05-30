@@ -24,6 +24,8 @@
 -module(mochiweb_request).
 -author('bob@mochimedia.com').
 
+-compile(tuple_calls).
+
 -include_lib("kernel/include/file.hrl").
 -include("internal.hrl").
 
@@ -113,6 +115,29 @@ get(headers, {?MODULE, [_Socket, _Opts, _Method, _RawPath, _Version, Headers]}) 
 get(peer, {?MODULE, [Socket, _Opts, _Method, _RawPath, _Version, _Headers]}=THIS) ->
     case mochiweb_socket:peername(Socket) of
         {ok, {Addr={10, _, _, _}, _Port}} ->
+            case get_header_value("x-forwarded-for", THIS) of
+                undefined ->
+                    inet_parse:ntoa(Addr);
+                Hosts ->
+                    string:strip(lists:last(string:tokens(Hosts, ",")))
+            end;
+        %% Copied this syntax from webmachine contributor Steve Vinoski
+        {ok, {Addr={172, Second, _, _}, _Port}} when (Second > 15) andalso (Second < 32) ->
+            case get_header_value("x-forwarded-for", THIS) of
+                undefined ->
+                    inet_parse:ntoa(Addr);
+                Hosts ->
+                    string:strip(lists:last(string:tokens(Hosts, ",")))
+            end;
+        %% According to RFC 6598, contributor Gerald Xv
+        {ok, {Addr={100, Second, _, _}, _Port}} when (Second > 63) andalso (Second < 128) ->
+            case get_header_value("x-forwarded-for", THIS) of
+                undefined ->
+                    inet_parse:ntoa(Addr);
+                Hosts ->
+                    string:strip(lists:last(string:tokens(Hosts, ",")))
+            end;
+        {ok, {Addr={192, 168, _, _}, _Port}} ->
             case get_header_value("x-forwarded-for", THIS) of
                 undefined ->
                     inet_parse:ntoa(Addr);
