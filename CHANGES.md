@@ -1,3 +1,15 @@
+Version 2.20.1 released 2020-02-03
+
+* Removed deprecated metadata from .app file
+
+Version 2.20.0 released 2019-07-14
+
+* Expand testing matrix to include Erlang/OTP 22.0 and Erlang/OTP 21.3
+* Add support for SameSite=none in cookies
+  https://github.com/mochi/mochiweb/pull/225
+* Fix parsing of certain unquoted cookie values
+  https://github.com/mochi/mochiweb/pull/212
+
 Version 2.19.0 released 2019-01-17
 
 * Fix warning in 21.2.3 and crash on incompatible releases
@@ -13,6 +25,7 @@ Version 2.19.0 released 2019-01-17
 * No longer crash when a socket is closed server-side
   https://github.com/mochi/mochiweb/pull/205
 * Support for SameSite cookie setting
+  https://github.com/mochi/mochiweb/pull/203
 
 Version 2.18.0 released 2018-05-12
 
